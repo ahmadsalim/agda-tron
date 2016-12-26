@@ -1,0 +1,3 @@
+name: agda-tron
+include: src
+depend: standard-library
