@@ -1,26 +1,23 @@
 module TRON.Syntax where
 
-open import Level
+import Level
 open import Data.Unit
 open import Data.Empty
 open import Data.Bool renaming (_∨_ to _lor_; _∧_ to _land_; if_then_else_ to 𝔹-elim)
 open import Data.String
-open import Data.List as List
-open import Data.List.Any as Any
-open import Data.List.All
 open import Data.Product
-open import Relation.Nullary.Decidable
 open import Relation.Binary.PropositionalEquality
-module Elem = Membership-≡
+
+open import Util
 
 module Static where
   record Class : Set where
-    constructor _class
+    constructor _cls
     field
       name : String
 
   record Field : Set where
-    constructor _f
+    constructor _fld
     field
       name : String
 
@@ -29,34 +26,28 @@ module Static where
 
   record RawStructure : Set₁ where
     field
-      classes : List Class
-      fields : List Field
-      _ref⟨_⟩_ : (c : Class) ⦃ c∈classes : c Elem.∈ classes ⦄ → (cnt : Containment) → (f : Field) → ⦃ f∈fields : f Elem.∈ fields ⦄ → Set
-      _gen_  : ∀ c ⦃ c∈classes : c Elem.∈ classes ⦄ c′ ⦃ c′∈classes : c′ Elem.∈ classes ⦄ → Set
+      classes : FSet Class
+      fields : FSet Field
+      ref    : (c : FSet.Element classes) (f : FSet.Element fields) → FSet.Element classes × Containment
+      _gen_  : ∀ (c c′ : FSet.Element classes) → Set
 
-    data _gen⋆_ (c : Class) ⦃ c∈classes : c Elem.∈ classes ⦄ : (c′ : Class) ⦃ c′∈classes : c′ Elem.∈ classes ⦄  → Set where
-      instance
-        [] : c gen⋆ c
-        _∷_ : ∀ {c′} ⦃ c′∈classes : c′ Elem.∈ classes ⦄ c″ ⦃ c″∈classes : c″ Elem.∈ classes ⦄ → c gen c″ → c″ gen⋆ c′ → c gen⋆ c′
+    _gen⋆_ : (c c′ : FSet.Element classes) → Set
+    c gen⋆ c′ = c Closures.⟨ _gen_ ⟩* c′
 
   record Structure : Set₁ where
     field
       rawStructure : RawStructure
     open RawStructure rawStructure public
     field
-      .classes-set      : ∀ c → (c∈classes₁ : c Elem.∈ classes) (c∈classes₂ : c Elem.∈ classes) → c∈classes₁ ≡ c∈classes₂
-      .fields-set       : ∀ f → (f∈fields₁ : f Elem.∈ fields) (f∈fields₂ : f Elem.∈ fields) → f∈fields₁ ≡ f∈fields₂
-      .gen-acyclic      : ∀ c ⦃ c∈classes : c Elem.∈ classes ⦄ c′ ⦃ c′∈classes : c′ Elem.∈ classes ⦄ → c gen⋆ c′ → c′ gen⋆ c → ⊥
-      .ref-gen          : ∀ c c′ ⦃ c∈classes : c Elem.∈ classes ⦄ ⦃ c′∈classes : c′ Elem.∈ classes ⦄ cnt f ⦃ f∈fields : f Elem.∈ fields ⦄ →
-                          c gen⋆ c′ → c′ ref⟨ cnt ⟩ f → c ref⟨ cnt ⟩ f
-      .ref-cnt-disjoint : ∀ c ⦃ c∈classes : c Elem.∈ classes ⦄ f ⦃ f∈fields : f Elem.∈ fields ⦄ → c ref⟨ ✦ ⟩ f → c ref⟨ ↝ ⟩ f → ⊥
+      .gen-acyclic      : ∀ c c′ → c gen⋆ c′ → c′ gen⋆ c → ⊥
+      .ref-gen          : ∀ c c′ c″ cnt f → c gen⋆ c′ → ref c′ f ≡ (c″ , cnt) → ref c f ≡ (c″ , cnt)
 
 module Dynamic (structure : Static.Structure) where
   open Static
   open Structure structure
 
   record Var : Set where
-    constructor _v
+    constructor _var
     field
       name : String
 
@@ -79,22 +70,21 @@ module Dynamic (structure : Static.Structure) where
 
   data MatchExpr : Set where
     ⌈_⌉     : (e : SetExpr) → MatchExpr
-    _match_ _match⋆_ : (e : SetExpr) (c : Class) ⦃ c∈classes : c Elem.∈ classes ⦄ → MatchExpr
+    _match_ _match⋆_ : (e : SetExpr) (c : FSet.Element classes) → MatchExpr
 
   -- Purely for syntax
   record New : Set where
     constructor new_
     field
-      class : Class
-      ⦃ class∈classes ⦄ : class Elem.∈ classes
+      class : FSet.Element classes
 
   data Statement : Set where
     skip          : Statement
     _︔_            : (s₁ s₂ : Statement) → Statement
     _≔₁_          : (var : Var) (e : SetExpr) → Statement
-    _≔₂_﹒_         : (var : Var) (e : SetExpr) (f : Field) ⦃ f∈fields : f Elem.∈ fields ⦄ → Statement
+    _≔₂_﹒_         : (var : Var) (e : SetExpr) (f : FSet.Element fields) → Statement
     _≔₃_          : (var : Var) (en : New) → Statement
-    _﹒_≔₄_         : (e₁ : SetExpr) (f : Field) ⦃ f∈fields : f Elem.∈ fields ⦄ (e₂ : SetExpr) → Statement
+    _﹒_≔₄_         : (e₁ : SetExpr) (f : FSet.Element fields) (e₂ : SetExpr) → Statement
     if_then_else_ : (b : BoolExpr) (s₁ s₂ : Statement) → Statement
     foreach_∈_do_ : (var : Var) (me : MatchExpr) (s : Statement) → Statement
     fix_do_       : (e : SetExpr) (s : Statement) → Statement
