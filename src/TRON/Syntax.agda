@@ -11,15 +11,8 @@ open import Relation.Binary.PropositionalEquality
 open import Util
 
 module Static where
-  record Class : Set where
-    constructor _cls
-    field
-      name : String
-
-  record Field : Set where
-    constructor _fld
-    field
-      name : String
+  Class = String
+  Field = String
 
   data Containment : Set where
     ✦ ↝ : Containment
@@ -46,13 +39,10 @@ module Dynamic (structure : Static.Structure) where
   open Static
   open Structure structure
 
-  record Var : Set where
-    constructor _var
-    field
-      name : String
+  Var = String
 
   data SetExpr : Set where
-    ‹_› : (var : String) → SetExpr
+    ‹_› : (var : Var) → SetExpr
     ∅   : SetExpr
     _∪_ _∩_ _∖_ : (e₁ e₂ : SetExpr) → SetExpr
 
