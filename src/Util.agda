@@ -129,10 +129,13 @@ module FSets where
           ⊆-✓ .(a′ ∷ as′-elements′) as′-elements-set as (_∷_ {x = a′} {xs = as′-elements′} a′∈as all∣as′⊆as₁) (‹ a-val › ⦃ here  a≡a′ ⦄)        | no a≢a′ = ⊥-elim (a≢a′ a≡a′)
           ⊆-✓ .(a′ ∷ as′-elements′) as′-elements-set as (_∷_ {x = a′} {xs = as′-elements′} a′∈as all∣as′⊆as₁) (‹ a-val › ⦃ there a∈elements′ ⦄) | no _ =
             ⊆-✓ as′-elements′ (element-remove-set as′-elements-set) as all∣as′⊆as₁ (‹ a-val › ⦃ a∈elements′ ⦄)
-  _⊆?_ {α} {A} as′ as | no ¬all|as′⊆as = no (⊆-✗ (elements as′) (elements-set as′) as)
-    where ⊆-✗ : (as′-elements : List A) .(as′-elements-set : IsSet as′-elements) (as : FSet A)
-                    (as′⊆as : mk-set as′-elements as′-elements-set ⊆ as) → ⊥
-          ⊆-✗ = {!!}
+  _⊆?_ {α} {A} as′ as | no ¬all|as′⊆as = no (λ as′⊆as → ¬all|as′⊆as (as′⊆as⇒all|as′⊆as (elements as′) (elements-set as′) as as′⊆as))
+    where as′⊆as⇒all|as′⊆as : ∀ (elements-as′ : List A) .(elements-set-as′ : IsSet elements-as′) (as : FSet A)
+                                (as′⊆as : mk-set elements-as′ elements-set-as′ ⊆ as) → All (_∈ as) elements-as′
+          as′⊆as⇒all|as′⊆as [] elements-as′-set as as′⊆as = []
+          as′⊆as⇒all|as′⊆as (a ∷ as′) elements-as′-set as as′⊆as =
+            as′⊆as (‹ a › ⦃ here refl ⦄) ∷ as′⊆as⇒all|as′⊆as as′ (element-remove-set elements-as′-set) as
+                (λ a′ → as′⊆as (‹ Element.value a′ › ⦃ there (Element.value∈elements a′) ⦄ ))
 
   _◀_ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (as : FSet A) (a : A) → FSet A
   as ◀ a with (a ∈? as)
