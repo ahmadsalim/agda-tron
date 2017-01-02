@@ -12,6 +12,7 @@ open import Data.List as List
 open import Data.String renaming (_≟_ to _≟S_)
 
 open import Relation.Nullary
+open import Relation.Nullary.Decidable
 open import Relation.Binary.PropositionalEquality
 
 open import Category.Monad
@@ -67,10 +68,6 @@ module Concrete (structure : Static.Structure) where
             mk-inst x ≟I mk-inst y  | no  x≢y  = no (λ mk-instx≢mk-insty → x≢y (mk-inst-inj mk-instx≢mk-insty))
               where mk-inst-inj : ∀ {x y} → mk-inst x ≡ mk-inst y → x ≡ y
                     mk-inst-inj refl = refl
-
-  instance
-    decEqString : DecEq String
-    decEqString = record { _≟_ = _≟S_ }
 
   Store : Set
   Store = Var ⇀ FSet Instance
@@ -142,19 +139,19 @@ module Concrete (structure : Static.Structure) where
       ⇓𝓔-∪   : ∀ {e₁ e₂ σ os₁ os₂} →
                 e₁ , σ ⇓𝓔 os₁ →
                 e₂ , σ ⇓𝓔 os₂ →
-               ---------------------
+               -------------------------------
                 e₁ ∪ e₂ , σ ⇓𝓔 os₁ FSets.∪ os₂
 
       ⇓𝓔-∩   : ∀ {e₁ e₂ σ os₁ os₂} →
                 e₁ , σ ⇓𝓔 os₁ →
                 e₂ , σ ⇓𝓔 os₂ →
-                ---------------------
+                --------------------------------
                 e₁ ∩ e₂ , σ ⇓𝓔 os₁ FSets.∩ os₂
 
       ⇓𝓔-∖   : ∀ {e₁ e₂ σ os₁ os₂} →
                 e₁ , σ ⇓𝓔 os₁ →
                 e₂ , σ ⇓𝓔 os₂ →
-                ---------------------
+                -------------------------------
                 e₁ ∖ e₂ , σ ⇓𝓔 os₁ FSets.∖ os₂
 
 
@@ -162,18 +159,48 @@ module Concrete (structure : Static.Structure) where
 
     data _,_⇓𝓑_ : BoolExpr → Store → 𝔹 → Set where
       ⇓𝓑-⊆ : ∀ {e₁ e₂ σ os₁ os₂} →
-               e₁ , σ ⇓𝓔 os₁ →
-               e₂ , σ ⇓𝓔 os₂ →
-               os₁ FSets.⊆ os₂ →
-               e₁ ⊆ e₂ , σ ⇓𝓑 {!!}
+                e₁ , σ ⇓𝓔 os₁ →
+                e₂ , σ ⇓𝓔 os₂ →
+                ------------------------------------
+                e₁ ⊆ e₂ , σ ⇓𝓑 ⌊ os₁ FSets.?⊆ os₂ ⌋
+      ⇓𝓑-⊈ : ∀ {e₁ e₂ σ os₁ os₂} →
+                e₁ , σ ⇓𝓔 os₁ →
+                e₂ , σ ⇓𝓔 os₂ →
+                ------------------------------------
+                e₁ ⊈ e₂ , σ ⇓𝓑 not ⌊ os₁ FSets.?⊆ os₂ ⌋
+      ⇓𝓑-∧  : ∀ {b₁ b₂ σ t₁ t₂} →
+                b₁ , σ ⇓𝓑 t₁ →
+                b₂ , σ ⇓𝓑 t₂ →
+                ------------------------------------
+                b₁ ∧ b₂ , σ ⇓𝓑 t₁ Bool.∧ t₂
+      ⇓𝓑-∨  : ∀ {b₁ b₂ σ t₁ t₂} →
+                b₁ , σ ⇓𝓑 t₁ →
+                b₂ , σ ⇓𝓑 t₂ →
+                ------------------------------------
+                b₁ ∨ b₂ , σ ⇓𝓑 t₁ Bool.∨ t₂
 
-    {-
+    data matching : FSet Instance → Element classes → TypeEnv → FSet Instance → Set where
+      [] : ∀ {c Γ} → matching FSets.∅ c Γ FSets.∅
+      _∷⟨_⟩_ : ∀ {o os [o]∪os os′ c Γ} → ⦃ o∈dom·Γ : o FSets.∈ dom Γ ⦄ →  (Γ · ‹ o ›) gen⋆ c → FSets.[ o ]⊎ os ≈ [o]∪os →  matching os c Γ os′ → matching [o]∪os c Γ (os′ FSets.◀ o)
+      _∷¬⟨_⟩_ : ∀ {o os [o]∪os os′ c Γ} → ⦃ o∈dom·Γ : o FSets.∈ dom Γ ⦄ →  ¬ ((Γ · ‹ o ›) gen⋆ c) → FSets.[ o ]⊎ os ≈ [o]∪os →  matching os c Γ os′ → matching [o]∪os c Γ os′
 
-    𝓑⟦_⟧ : BoolExpr → Store → Maybe 𝔹
-    𝓑⟦ e₁ Dynamic.⊆ e₂ ⟧ σ = {!!}
-    𝓑⟦ e₁ Dynamic.⊈ e₂ ⟧ σ = {!!}
-    𝓑⟦ b₁ Dynamic.∨ b₂ ⟧ σ = 𝓑⟦ b₁ ⟧ σ >>= λ t₁ →
-                             𝓑⟦ b₂ ⟧ σ >>= λ t₂ →
-                              return (t₁ Bool.∧ t₂)
-    𝓑⟦ b₁ Dynamic.∧ b₂ ⟧ σ = {!!}
-    -}
+    data matching⋆ : FSet Instance → Element classes → Heap → TypeEnv → FSet Instance → Set where
+      [] : ∀ {c h Γ} → matching⋆ FSets.∅ c h Γ FSets.∅
+
+    infix 0 _,_⇓𝓜_
+
+    data _,_⇓𝓜_ : MatchExpr → Memory → FSet Instance → Set where
+      ⇓𝓜-⌈⌉ : ∀ {e σ h Γ os} →
+                 e , σ ⇓𝓔 os →
+                ------------------------
+                 ⌈ e ⌉ , σ ∣ h ∣ Γ ⇓𝓜 os
+      ⇓𝓜-match  : ∀ {e c σ h Γ os os′} →
+                      e , σ ⇓𝓔 os →
+                      matching os c Γ os′ →
+                      ----------------------------
+                      e match c , σ ∣ h ∣ Γ ⇓𝓜 os′
+      ⇓𝓜-match⋆ : ∀ {e c σ h Γ os os′} →
+                      e , σ ⇓𝓔 os →
+                      matching⋆ os c h Γ os′ →
+                      -------------------------
+                      e match⋆ c , σ ∣ h ∣ Γ ⇓𝓜 os′

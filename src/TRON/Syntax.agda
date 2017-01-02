@@ -6,6 +6,7 @@ open import Data.Empty
 open import Data.Bool renaming (_∨_ to _lor_; _∧_ to _land_; if_then_else_ to 𝔹-elim)
 open import Data.String
 open import Data.Product
+open import Relation.Nullary
 open import Relation.Binary.PropositionalEquality
 
 open import Util
@@ -20,12 +21,18 @@ module Static where
   record RawStructure : Set₁ where
     field
       classes : FSet Class
-      fields : FSet Field
-      ref    : (c : FSet.Element classes) (f : FSet.Element fields) → FSet.Element classes × Containment
-      _gen_  : ∀ (c c′ : FSet.Element classes) → Set
+      fields  : FSet Field
+      ref     : (c : FSet.Element classes) (f : FSet.Element fields) → FSet.Element classes × Containment
+      _gen_   : ∀ (c c′ : FSet.Element classes) → Set
+      _?gen_  : ∀ (c c′ : FSet.Element classes) → Dec (c gen c′)
 
     _gen⋆_ : (c c′ : FSet.Element classes) → Set
     c gen⋆ c′ = c Closures.⟨ _gen_ ⟩* c′
+
+    open FSets
+
+    _?gen⋆_ : (c c′ : FSet.Element classes) → Dec (c gen⋆ c′)
+    c ?gen⋆ c′ = c Closures.?⟨ _?gen_ ⟩* c′
 
   record Structure : Set₁ where
     field
