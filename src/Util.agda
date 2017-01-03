@@ -21,7 +21,8 @@ infixl 0 _≅_if_∣_otherwise
 _≅_if_∣_otherwise : ∀ {α π} {A : Set α} (res : A) (then : A) (cond : Set π) (else : A) → Set (α Level.⊔ π)
 a ≅ a₁ if cond ∣ a₂ otherwise = cond × a ≡ a₁ ⊎ ¬ cond × a ≡ a₂
 
-
+⊥-elim-irr : ∀ {α} {A : Set α} → .⊥ → A
+⊥-elim-irr ()
 -- From effectfully on IRC
 record Irr {α} (A : Set α) : Set α where
   constructor irr
@@ -118,6 +119,7 @@ record FSet {α} (A : Set α) : Set α where
       value : A
       .⦃ value∈elements ⦄ : value Memb.∈ elements
 
+
 module FSets where
   open FSet
 
@@ -140,6 +142,23 @@ module FSets where
     cong-mk-set : ∀ {α} {A : Set α} {as as′ : List A} {as-set : IsSet as} {as′-set : IsSet as′} → as ≡ as′ → mk-set as as-set ≡ mk-set as′ as′-set
     cong-mk-set refl = refl
 
+  private
+    module _ {α} {A : Set α} where
+      element-inhabitants : ∀ (as : List A) .(as-set : IsSet as) → Σ[ as′ ∈ List (FSet.Element (mk-set as as-set)) ] (Irr (IsSet as′))
+      element-inhabitants as as-set = as′ , irr as′-set
+          where module AMemb = Membership (setoid A)
+                module EAMemb = Membership (setoid (Element (mk-set as as-set)))
+                as′ : List (FSet.Element (mk-set as as-set))
+                as′ = AMemb.map-with-∈ as (λ {a} a∈as → (Element (mk-set as as-set) ∋ ‹ a › ⦃ a∈as ⦄))
+                postulate -- TODO proof
+                  as′-set : IsSet as′
+
+
+      postulate -- TODO proof
+        .element-inhabitants-enumerate : ∀ (as : List A) .(as-set : IsSet as) (a : FSet.Element (mk-set as as-set)) →
+                                            let open Membership (setoid (Element (mk-set as as-set)))
+                                            in a ∈ (proj₁ (element-inhabitants as as-set))
+
   instance
     fset-deceq : ∀ {α} {A : Set α} ⦃ deceqA : DecEq A ⦄ → DecEq (FSet A)
     fset-deceq {α} {A} = record { _≟_ = λ as as′ → ≟FS (elements as) (elements as′) (elements-set as) (elements-set as′) }
@@ -157,20 +176,9 @@ module FSets where
     postulate
       element-deceq : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ {as : FSet A} → DecEq (FSet.Element as)
 
-    private
-      element-inhabitants : ∀ {α} {A : Set α} (as : List A) .(as-set : IsSet as) → List (FSet.Element (mk-set as as-set))
-      element-inhabitants [] []-set = []
-      element-inhabitants (a ∷ as) a∷as-set with (element-inhabitants as (element-remove-set a∷as-set))
-      ... | inhabitants-as = ‹ a › ∷ List.map (λ { ‹ a › → ‹ a › }) inhabitants-as
-
-      postulate -- TODO proof
-        .element-inhabitants-enumerate : ∀ {α} {A : Set α} (as : List A) .(as-set : IsSet as) (a : FSet.Element (mk-set as as-set)) →
-                                            let open Membership (setoid (Element (mk-set as as-set)))
-                                            in a ∈ (element-inhabitants as as-set)
-
     element-finite : ∀ {α} {A : Set α} {as : FSet A} → Finite (FSet.Element as)
     element-finite {α} {A} {as} = record {
-      inhabitants = element-inhabitants (FSet.elements as) (FSet.elements-set as) ;
+      inhabitants = proj₁ (element-inhabitants (FSet.elements as) (FSet.elements-set as)) ;
       inhabitants-enumerate = element-inhabitants-enumerate (FSet.elements as) (FSet.elements-set as) }
 
   _∈_ _∉_ : ∀ {α} {A : Set α} → A → FSet A → Set α
@@ -277,6 +285,9 @@ module FSets where
   [_] : ∀ {α} {A : Set α} (a : A) → FSet A
   [ a ] = element-extend a ∅ (λ ())
 
+  infixl 5 _∪_
+  infixl 6 _∩_
+
   _∪_ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xs ys : FSet A) → FSet A
   xs ∪ ys = foldr (λ x xs′∪ys → xs′∪ys ◀ x) ys (elements xs)
 
@@ -296,32 +307,33 @@ module FSets where
   toList : ∀ {α} {A : Set α} → FSet A → List A
   toList = elements
 
-  map/≡ : ∀ {α β} {A : Set α} {B : Set β} ⦃ decEqB : DecEq B ⦄ → (A → B) → FSet A → FSet B
-  map/≡ f as = fromList (List.map f (elements as))
-
-  fold : ∀ {α π} {A : Set α} {P : FSet A → Set π} →
-    P ∅ → (∀ (a : A) (as : FSet A) .(a∉as : a ∉ as) (pas : P as) → P (element-extend a as a∉as)) → (as : FSet A) → P as
-  fold {α} {π} {A} {P} p∅ p◀ (mk-set elements elements-set) = fold′ elements elements-set
-    where fold′ : ∀ (elements : List A) .(elements-set : IsSet elements) → P (mk-set elements elements-set)
-          fold′ [] []-set = p∅
-          fold′ (e ∷ elements) e∷elements-set =
-            p◀ e (mk-set elements (element-remove-set e∷elements-set))
+  fold : ∀ {α π} {A : Set α} {P : FSet A → Set π} (as : FSet A) → P ∅ → (∀ (a : Element as) (as′ : FSet A) .(a∉as′ : Element.value a ∉ as′) .(as′⊆as : as′ ⊆ as) (pas : P as′) → P (element-extend (Element.value a) as′ a∉as′)) → P as
+  fold {α} {π} {A} {P} as p∅ p◀ = fold′ (elements as) (elements-set as) (λ _ a∈as → irr a∈as)
+    where fold′ : ∀ (elements : List A) .(elements-set : IsSet elements) →
+            let as′ = mk-set elements elements-set
+            in .(as′⊆as : ∀ (a : A) → .(a ∈ as′) → Irr (a ∈ as)) → P as′
+          fold′ [] []-set []⊆as = p∅
+          fold′ (e ∷ elements) e∷elements-set as′⊆as =
+            p◀ (‹ e › ⦃ Irr.proof (as′⊆as e (here refl)) ⦄) (mk-set elements (element-remove-set e∷elements-set))
                  (λ e∈elements → here≢there (e∷elements-set (here refl) (there e∈elements)))
-                 (fold′ elements (element-remove-set e∷elements-set))
+                 (λ { (‹ a › ⦃ a∈as′ ⦄) → Irr.proof (as′⊆as a (there a∈as′)) })
+                 (fold′ elements (element-remove-set e∷elements-set) (λ a a∈as′ → as′⊆as a (there a∈as′)))
 
-  filter : ∀ {α} {A : Set α} → (p : A → Bool) → FSet A → FSet A
-  filter {α} {A} p as = proj₁ (fold {P = λ as → Σ[ as′ ∈ FSet A ] (Irr (as′ ⊆ as))}
-                                    (∅ , irr (∅-least {as = ∅}))
-                                    (λ { a as₁ a∉as₁ (as′ , as′⊆as₁)  →
-                                          if p a
-                                          then (let as″ = mk-set (a ∷ elements as′) (element-extend-set (⊆-∉ {as = as₁} (Irr.proof as′⊆as₁) a∉as₁) (elements-set as′))
-                                                in as″ , irr {A = (a′ : Element as″) → Element.value a′ ∈ element-extend a as₁ a∉as₁ }
-                                                             (λ a′ → case Element.value∈elements a′ of λ {
-                                                                        (here a′≡a) → here a′≡a;
-                                                                        (there a′∈as′) → there (Irr.proof as′⊆as₁ (‹ Element.value a′ › ⦃ a′∈as′ ⦄))
-                                                                     }))
-                                          else as′ , irr (λ a′ → there (Irr.proof as′⊆as₁ a′)) }) as)
+  map/≡ : ∀ {α β} {A : Set α} {B : Set β} ⦃ decEqB : DecEq B ⦄ (as : FSet A) (f : Element as → B) → FSet B
+  map/≡ as f = fold as ∅ (λ a _ _ _ bs → bs ◀ f a)
 
+  filter : ∀ {α} {A : Set α} (as : FSet A) (p : Element as → Bool) → Σ[ as′ ∈ FSet A ] (Irr (as′ ⊆ as)) -- filter is somewhat complex because we want to ensure that we filter without requiring decidable equivilance
+  filter {α} {A} as p = fold {P = λ as → Σ[ as′ ∈ FSet A ] (Irr (as′ ⊆ as))}
+                             as (∅ , irr (∅-least {as = ∅}))
+                             (λ { a as₁ a∉as₁ _ (as′ , as′⊆as₁)  →
+                                   if p a
+                                   then (let as″ = mk-set (Element.value a ∷ elements as′) (element-extend-set (⊆-∉ {as = as₁} (Irr.proof as′⊆as₁) a∉as₁) (elements-set as′))
+                                         in as″ , irr {A = (a′ : Element as″) → Element.value a′ ∈ element-extend (Element.value a) as₁ a∉as₁ }
+                                                       (λ a′ → case Element.value∈elements a′ of λ {
+                                                                 (here a′≡a) → here a′≡a;
+                                                                 (there a′∈as′) → there (Irr.proof as′⊆as₁ (‹ Element.value a′ › ⦃ a′∈as′ ⦄))
+                                                               }))
+                                   else as′ , irr (λ a′ → there (Irr.proof as′⊆as₁ a′)) })
 
   data _≢∅ {α} {A : Set α} : FSet A → Set (Level.suc α) where
     instance
@@ -331,7 +343,7 @@ module FSets where
   [ a ]⊎ as ≈ as′ = Σ[ a∉as ∈ a ∉ as ] element-extend a as a∉as ≈ as′
 
   ⋓ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xss : FSet (FSet A)) → FSet A
-  ⋓ = fold ∅ (λ a ass a∉ass as′ → a ∪ as′)
+  ⋓ xss = fold xss ∅ (λ xs xss′ xs∉xss′ xss′⊆xss xs′ → Element.value xs ∪ xs′)
 
   ⋒ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xss : FSet (FSet A)) ⦃ xss≢∅ : xss ≢∅ ⦄ → FSet A
-  ⋒ _ ⦃ ok! {a} {as} {a∷as-set} ⦄ = fold a (λ a ass a∉ass as′ → a ∩ as′) (mk-set as (element-remove-set a∷as-set))
+  ⋒ _ ⦃ ok! {xs} {xss} {xs∷xss-set} ⦄ = fold (mk-set xss (element-remove-set xs∷xss-set)) xs (λ xs xss′ xs∉xss′ xss′⊆xss xs′ → Element.value xs ∩ xs′)

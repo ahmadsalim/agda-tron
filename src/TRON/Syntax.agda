@@ -18,13 +18,24 @@ module Static where
   data Containment : Set where
     ✦ ↝ : Containment
 
+  instance
+    deceq-containment : DecEq Containment
+    deceq-containment = record { _≟_ = _≟C_ }
+      where _≟C_ : (cnt₁ cnt₂ : Containment) → Dec (cnt₁ ≡ cnt₂)
+            ✦ ≟C ✦ = yes refl
+            ✦ ≟C ↝ = no (λ ())
+            ↝ ≟C ✦ = no (λ ())
+            ↝ ≟C ↝ = yes refl
+
   record RawStructure : Set₁ where
     field
-      classes : FSet Class
-      fields  : FSet Field
-      ref     : (c : FSet.Element classes) (f : FSet.Element fields) → FSet.Element classes × Containment
-      _gen_   : ∀ (c c′ : FSet.Element classes) → Set
-      _?gen_  : ∀ (c c′ : FSet.Element classes) → Dec (c gen c′)
+      classes      : FSet Class
+      fields       : FSet Field
+      class-fields : FSet.Element classes → FSet (FSet.Element fields)
+      ref          : (c : FSet.Element classes) (f : FSet.Element (class-fields c)) → FSet.Element classes
+      containment  : (f : FSet.Element fields) → Containment
+      _gen_        : ∀ (c c′ : FSet.Element classes) → Set
+      _?gen_       : ∀ (c c′ : FSet.Element classes) → Dec (c gen c′)
 
     _gen⋆_ : (c c′ : FSet.Element classes) → Set
     c gen⋆ c′ = c Closures.⟨ _gen_ ⟩* c′
@@ -39,8 +50,9 @@ module Static where
       rawStructure : RawStructure
     open RawStructure rawStructure public
     field
-      .gen-acyclic      : ∀ c c′ → c gen⋆ c′ → c′ gen⋆ c → ⊥
-      .ref-gen          : ∀ c c′ c″ cnt f → c gen⋆ c′ → ref c′ f ≡ (c″ , cnt) → ref c f ≡ (c″ , cnt)
+      .gen-acyclic        : ∀ {c c′} → c gen⋆ c′ → c′ gen⋆ c → ⊥
+      .class-fields-gen   : ∀ {c c′ f} → c gen⋆ c′ → f FSets.∈ class-fields c′ → f FSets.∈ class-fields c
+      .ref-gen            : ∀ {c c′ c″ f} → (c<:c′ : c gen⋆ c′) → ref c′ f ≡ c″ → ref c (FSet.‹ FSet.Element.value f › ⦃ class-fields-gen c<:c′ (FSet.Element.value∈elements f) ⦄) ≡ c″
 
 module Dynamic (structure : Static.Structure) where
   open Static
@@ -74,6 +86,8 @@ module Dynamic (structure : Static.Structure) where
     constructor new_
     field
       class : FSet.Element classes
+
+  infix 4 _≔₁_ _≔₂_﹒_ _≔₃_ _﹒_≔₄_
 
   data Statement : Set where
     skip          : Statement
