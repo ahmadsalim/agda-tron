@@ -90,12 +90,12 @@ module Dynamic (structure : Static.Structure) where
   infix 4 _≔₁_ _≔₂_﹒_ _≔₃_ _﹒_≔₄_
 
   data Statement : Set where
-    skip          : Statement
-    _︔_            : (s₁ s₂ : Statement) → Statement
-    _≔₁_          : (var : Var) (e : SetExpr) → Statement
-    _≔₂_﹒_         : (var : Var) (e : SetExpr) (f : FSet.Element fields) → Statement
-    _≔₃_          : (var : Var) (en : New) → Statement
-    _﹒_≔₄_         : (e₁ : SetExpr) (f : FSet.Element fields) (e₂ : SetExpr) → Statement
-    if_then_else_ : (b : BoolExpr) (s₁ s₂ : Statement) → Statement
-    foreach_∈_do_ : (var : Var) (me : MatchExpr) (s : Statement) → Statement
-    fix_do_       : (e : SetExpr) (s : Statement) → Statement
+    skip           : Statement
+    _︔_             : (s₁ s₂ : Statement) → Statement
+    _≔₁_           : (var : Var) (e : SetExpr) → Statement
+    _≔₂_﹒_          : (var : Var) (e : SetExpr) (f : FSet.Element fields) → Statement
+    _≔₃_           : (var : Var) (en : New) → Statement
+    _﹒_≔₄_          : (e₁ : SetExpr) (f : FSet.Element fields) (e₂ : SetExpr) → Statement
+    if_then_else_   : (b : BoolExpr) (s₁ s₂ : Statement) → Statement
+    foreach_inn_do_ : (var : Var) (me : MatchExpr) (s : Statement) → Statement
+    fix_do_         : (e : SetExpr) (s : Statement) → Statement

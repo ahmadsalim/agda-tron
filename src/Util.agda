@@ -29,6 +29,9 @@ record Irr {α} (A : Set α) : Set α where
   field
     .proof : A
 
+.irrly : ∀ {α} {A : Set α} → .A → A
+irrly a = Irr.proof (irr a)
+
 Σ-inst : ∀ {α π} (A : Set α) → (P : ⦃ a : A ⦄ → Set π) → Set (α Level.⊔ π)
 Σ-inst A P = Σ[ a ∈ A ] P ⦃ a ⦄
 
@@ -36,6 +39,11 @@ record DecEq {α} (A : Set α) : Set (Level.suc α) where
   field
     _≟_ : (x y : A) → Dec (x ≡ y)
 open DecEq ⦃ ... ⦄
+
+≟-refl : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ {x : A} → x ≟ x ≡ yes refl
+≟-refl {x = x} with (x ≟ x)
+≟-refl | yes refl = refl
+≟-refl | no  x≢x  = ⊥-elim (x≢x refl)
 
 instance
   decEqString : DecEq String
@@ -119,7 +127,6 @@ record FSet {α} (A : Set α) : Set α where
       value : A
       .⦃ value∈elements ⦄ : value Memb.∈ elements
 
-
 module FSets where
   open FSet
 
@@ -187,9 +194,13 @@ module FSets where
   _∉_ a as = a ∈ as → ⊥
 
   infix 4 _⊆_ _≈_
-  _⊆_ _≈_ : ∀ {α} {A : Set α} → FSet A → FSet A → Set α
+  _⊆_ _≈_ _⊈_ _≉_ _⊂_ _⊄_ : ∀ {α} {A : Set α} → FSet A → FSet A → Set α
   as ⊆ as′ = ∀ (a : FSet.Element as) → Element.value a ∈ as′
   as ≈ as′ = as ⊆ as′ × as′ ⊆ as
+  as ⊈ as′ = ¬ (as ⊆ as′)
+  as ≉ as′ = ¬ (as ≈ as′)
+  as ⊂ as′ = as ⊆ as′ × as ≉ as′
+  as ⊄ as′ = ¬ (as ⊂ as′)
 
   coe : ∀ {α} {A : Set α} {as as′ : FSet A} → .(as ⊆ as′) → Element as → Element as′
   coe as⊆as′ a = ‹ Element.value a › ⦃ as⊆as′ a ⦄
@@ -307,17 +318,20 @@ module FSets where
   toList : ∀ {α} {A : Set α} → FSet A → List A
   toList = elements
 
-  fold : ∀ {α π} {A : Set α} {P : FSet A → Set π} (as : FSet A) → P ∅ → (∀ (a : Element as) (as′ : FSet A) .(a∉as′ : Element.value a ∉ as′) .(as′⊆as : as′ ⊆ as) (pas : P as′) → P (element-extend (Element.value a) as′ a∉as′)) → P as
+  fold : ∀ {α π} {A : Set α} {P : FSet A → Set π} (as : FSet A) → P ∅ → (∀ (a : Element as) (as′ : FSet A) .(a∉as′ : Element.value a ∉ as′) .(as′⊆as : as′ ⊂ as) (pas : P as′) → P (element-extend (Element.value a) as′ a∉as′)) → P as
   fold {α} {π} {A} {P} as p∅ p◀ = fold′ (elements as) (elements-set as) (λ _ a∈as → irr a∈as)
     where fold′ : ∀ (elements : List A) .(elements-set : IsSet elements) →
             let as′ = mk-set elements elements-set
             in .(as′⊆as : ∀ (a : A) → .(a ∈ as′) → Irr (a ∈ as)) → P as′
           fold′ [] []-set []⊆as = p∅
           fold′ (e ∷ elements) e∷elements-set as′⊆as =
-            p◀ (‹ e › ⦃ Irr.proof (as′⊆as e (here refl)) ⦄) (mk-set elements (element-remove-set e∷elements-set))
-                 (λ e∈elements → here≢there (e∷elements-set (here refl) (there e∈elements)))
-                 (λ { (‹ a › ⦃ a∈as′ ⦄) → Irr.proof (as′⊆as a (there a∈as′)) })
-                 (fold′ elements (element-remove-set e∷elements-set) (λ a a∈as′ → as′⊆as a (there a∈as′)))
+            let a = ‹ e › ⦃ Irr.proof (as′⊆as e (here refl)) ⦄
+                as′ = mk-set elements (element-remove-set e∷elements-set)
+                .a∉as′ : Element.value a ∉ as′
+                a∉as′ = λ e∈elements → here≢there (e∷elements-set (here refl) (there e∈elements))
+            in p◀ a as′ a∉as′
+               ((λ { (‹ a › ⦃ a∈as′ ⦄) → Irr.proof (as′⊆as a (there a∈as′)) }) , (λ { (_ , as⊆as′) → ⊥-elim (a∉as′ (as⊆as′ a)) }))
+               (fold′ elements (element-remove-set e∷elements-set) (λ a a∈as′ → as′⊆as a (there a∈as′)))
 
   map/≡ : ∀ {α β} {A : Set α} {B : Set β} ⦃ decEqB : DecEq B ⦄ (as : FSet A) (f : Element as → B) → FSet B
   map/≡ as f = fold as ∅ (λ a _ _ _ bs → bs ◀ f a)
@@ -347,3 +361,64 @@ module FSets where
 
   ⋒ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xss : FSet (FSet A)) ⦃ xss≢∅ : xss ≢∅ ⦄ → FSet A
   ⋒ _ ⦃ ok! {xs} {xss} {xs∷xss-set} ⦄ = fold (mk-set xss (element-remove-set xs∷xss-set)) xs (λ xs xss′ xs∉xss′ xss′⊆xss xs′ → Element.value xs ∩ xs′)
+
+  postulate
+    .∪-⊆  : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xs ys zs : FSet A) (xs⊆zs : xs ⊆ zs) (ys⊆zs : ys ⊆ zs) → xs ∪ ys ⊆ zs
+    .∩-⊆₁ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xs ys zs : FSet A) (xs⊆zs : xs ⊆ zs) → xs ∩ ys ⊆ zs
+    .∩-⊆₂ : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xs ys zs : FSet A) (ys⊆zs : ys ⊆ zs) → xs ∩ ys ⊆ zs
+    .∖-⊆  : ∀ {α} {A : Set α} ⦃ decEqA : DecEq A ⦄ (xs ys zs : FSet A) (xs⊆zs : xs ⊆ zs) → xs ∖ ys ⊆ zs
+
+module PartialFunctions where
+  infixr 2 _⇀_
+  record _⇀_ {α} {β} (A : Set α) (B : Set β) : Set (α Level.⊔ β) where
+    constructor lift
+    infixl 6 _·_
+    field
+      dom : FSet A
+      _·_ : FSet.Element dom → B
+  open _⇀_ public
+
+  ⊙ : ∀{α β} {A : Set α} {B : Set β} → A ⇀ B
+  ⊙ = lift FSets.∅ (λ { (FSet.Element.‹ a › ⦃ a∈∅ ⦄) → ⊥-elim-irr (FSets.∅-empty a∈∅) })
+
+  infix 1 _↦_
+  _↦_ : ∀ {α β} {A : Set α} {B : Set β} → A → B → A × B
+  _↦_ = _,_
+
+  infix 2 _⟪_⟫
+
+  abstract
+    _⟪_⟫ : ∀ {α β} {A : Set α} ⦃ decEqA : DecEq A ⦄ {B : Set β} (f : A ⇀ B) (upd : A × B) → A ⇀ B
+    _⟪_⟫ {B = B} (lift dom _·_) (arg , newval) = lift (dom FSets.◀ arg) _·′_
+      where  _·′_ : FSet.Element (dom FSets.◀ arg) → B
+             _·′_ el with (FSet.Element.value el ≟ arg)
+             _·′_ el | yes valel≡arg = newval
+             _·′_ el | no  valel≢arg with (FSets.◀-exact arg dom el)
+             _·′_ el | no  valel≢arg | inj₁ el′ = _·_ el′
+             _·′_ el | no  valel≢arg | inj₂ valel≡arg = ⊥-elim (valel≢arg valel≡arg)
+
+    .update-dom₁ : ∀ {α β} {A : Set α} ⦃ decEqA : DecEq A ⦄ {B : Set β} (f : A ⇀ B) (a : A) (b : B) → a FSets.∈ dom (f ⟪ a ↦ b ⟫)
+    update-dom₁ f a b with (a FSets.?∈ dom f)
+    update-dom₁ f a b | yes a∈dom·f = a∈dom·f
+    update-dom₁ f a b | no  a∉dom·f = here refl
+
+    .update-dom₂ : ∀ {α β} {A : Set α} ⦃ decEqA : DecEq A ⦄ {B : Set β} (f : A ⇀ B) (a : A) (b : B) → dom f FSets.⊆ dom (f ⟪ a ↦ b ⟫)
+    update-dom₂ {A = A} f a b with (a FSets.?∈ dom f)
+    ... | yes a∈dom·f = FSets.⊆-refl
+    ... | no  a∉dom·f = λ { (FSet.Element.‹ a′ › ⦃ a′∈dom·f ⦄) → there (irrly a′∈dom·f) }
+
+    .update-lookup₁ : ∀ {α β} {A : Set α} ⦃ decEqA : DecEq A ⦄ {B : Set β} (f : A ⇀ B) (a : A) (b : B) → (f ⟪ a ↦ b ⟫) · (FSet.Element.‹ a › ⦃ update-dom₁ f a b ⦄) ≡ b
+    update-lookup₁ f a b with (a FSets.?∈ dom f)
+    update-lookup₁ f a b | yes a∈dom·f rewrite (≟-refl {x = a}) = refl
+    update-lookup₁ f a b | no  a∉dom·f rewrite (≟-refl {x = a}) = refl
+
+    postulate
+      update-lookup₂ : ∀ {α β} {A : Set α} ⦃ decEqA : DecEq A ⦄ {B : Set β}
+          (f : A ⇀ B) (a : A) (b : B) (a′ : FSet.Element (dom f)) (b′ : B) → FSet.Element.value a′ ≢ a →
+          f · a′ ≡ b′ →
+          (f ⟪ a ↦ b ⟫) · (FSets.coe (update-dom₂ f a b) a′) ≡ b′
+
+    infix 2 _⟪_∥_⟫
+
+    _⟪_∥_⟫ : ∀ {α β γ} {A : Set α} {B : Set β}  ⦃ decEqB : DecEq B ⦄  {C : Set γ} (f : B ⇀ C)  (as : FSet A) (upd : FSet.Element as → B × C) → B ⇀ C
+    f ⟪ as ∥ upd ⟫ = FSets.fold as f (λ a _ _ _ f′ → f′ ⟪ proj₁ (upd a) ↦ proj₂ (upd a) ⟫)

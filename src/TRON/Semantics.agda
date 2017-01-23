@@ -3,7 +3,7 @@ module TRON.Semantics where
 import Level
 
 open import Data.Empty using (⊥; ⊥-elim)
-open import Data.Bool as Bool hiding (_∧_; _∨_) renaming (Bool to 𝔹; _≟_ to _≟B_)
+open import Data.Bool as Bool hiding (_∧_; _∨_; if_then_else_) renaming (Bool to 𝔹; _≟_ to _≟B_)
 open import Data.Nat renaming (_≟_ to _≟ℕ_)
 open import Data.Product
 open import Data.Sum as Sum
@@ -23,40 +23,6 @@ open import Function
 open import Util
 open DecEq ⦃ ... ⦄
 open import TRON.Syntax
-
-module PartialFunctions where
-  infixr 2 _⇀_
-  record _⇀_ {α} {β} (A : Set α) (B : Set β) : Set (α Level.⊔ β) where
-    constructor lift
-    infixl 6 _·_
-    field
-      dom : FSet A
-      _·_ : FSet.Element dom → B
-  open _⇀_ public
-
-  ⊙ : ∀{α β} {A : Set α} {B : Set β} → A ⇀ B
-  ⊙ = lift FSets.∅ (λ { (FSet.Element.‹ a › ⦃ a∈∅ ⦄) → ⊥-elim-irr (FSets.∅-empty a∈∅) })
-
-  infix 1 _↦_
-  _↦_ : ∀ {α β} {A : Set α} {B : Set β} → A → B → A × B
-  _↦_ = _,_
-
-  infix 2 _⟪_⟫
-
-  _⟪_⟫ : ∀ {α β} {A : Set α} ⦃ decEqA : DecEq A ⦄ {B : Set β} (f : A ⇀ B) (upd : A × B) → A ⇀ B
-  _⟪_⟫ {B = B} (lift dom _·_) (arg , newval) = lift (dom FSets.◀ arg) _·′_
-    where _·′_ : FSet.Element (dom FSets.◀ arg) → B
-          _·′_ el with (FSet.Element.value el ≟ arg)
-          _·′_ el | yes valel≡arg = newval
-          _·′_ el | no  valel≢arg with (FSets.◀-exact arg dom el)
-          _·′_ el | no  valel≢arg | inj₁ el′ = _·_ el′
-          _·′_ el | no  valel≢arg | inj₂ valel≡arg = ⊥-elim (valel≢arg valel≡arg)
-
-  infix 2 _⟪_∥_⟫
-
-  _⟪_∥_⟫ : ∀ {α β γ} {A : Set α} {B : Set β}  ⦃ decEqB : DecEq B ⦄  {C : Set γ} (f : B ⇀ C)  (as : FSet A) (upd : FSet.Element as → B × C) → B ⇀ C
-  f ⟪ as ∥ upd ⟫ = FSets.fold as f (λ a _ _ _ f′ → f′ ⟪ proj₁ (upd a) ↦ proj₂ (upd a) ⟫)
-
 
 module Concrete (structure : Static.Structure) where
   open Static
@@ -104,6 +70,10 @@ module Concrete (structure : Static.Structure) where
             « os » ≟V « .os » | yes refl = yes refl
             « os » ≟V « os′ » | no os≢os′ = no (λ «os»≡«os′» → os≢os′ («»-injective «os»≡«os′»))
 
+  _∖⊥_ : Value → FSet Instance → Value
+  ⏚ ∖⊥ os′ = « os′ »
+  « os » ∖⊥ os′ = « os FSets.∖ os′ »
+
   ⋓⊥ : FSet Value → Maybe (FSet Instance)
   ⋓⊥ vs with (Any.any (⏚ ≟_) (elements vs))
   ⋓⊥ vs | yes ⏚∈vs = nothing
@@ -127,28 +97,38 @@ module Concrete (structure : Static.Structure) where
       h : Heap
       Γ : TypeEnv
 
+  ValidStore : (μ : Memory) → Set
+  ValidStore (σ ∣ h ∣ Γ) = ∀ {x os} → σ · x ≡ « os » → os FSets.⊆ dom h
+
+  ValidHeapLinks : (μ : Memory) → Set
+  ValidHeapLinks (σ ∣ h ∣ Γ) = ∀ {o f os} → h · o · f ≡ « os » → os FSets.⊆ dom h
+
+  TypedHeapInstances : (μ : Memory) → Set
+  TypedHeapInstances (σ ∣ h ∣ Γ) = dom h FSets.≈ dom Γ
+
+  TypedHeapLinks : (μ : Memory) (links-valid : ValidHeapLinks μ) (dom·h≈dom·Γ : TypedHeapInstances μ) → Set
+  TypedHeapLinks (σ ∣ h ∣ Γ) links-valid (dom·h⊆dom·Γ , dom·Γ⊆dom·h) =
+    ∀ {c} {o : Element (dom h)} {f c′ os} →
+        Γ · (FSets.coe dom·h⊆dom·Γ o) ≡ c →
+        ref c f ≡ c′ →
+        Σ-inst (Element.value f FSets.∈ dom (h · o)) -- f is instantiated
+          (∀ (h·o·f≡os : h · o · ‹ Element.value f › ≡ « os ») (o′ : Element os) -- all elements have a type which is a subset of the expected one
+          → (Γ · FSets.coe (FSets.⊆-trans {ys = dom Γ} (links-valid h·o·f≡os) dom·h⊆dom·Γ) o′) gen⋆ c′)
+
+  CompleteHeapLinks : (μ : Memory) (dom·h≈dom·Γ : TypedHeapInstances μ) → Set
+  CompleteHeapLinks (σ ∣ h ∣ Γ) (dom·h⊆dom·Γ , dom·Γ⊆dom·h) =
+    ∀ {c} {o : Element (dom h)} →
+      Γ · (FSets.coe dom·h⊆dom·Γ o) ≡ c →
+      dom (h · o) FSets.≈ class-fields c
+
   record IsWellformed (μ : Memory) : Set₁ where
     open Memory μ public
     field
-      stack-valid          : ∀ {x os} → σ · x ≡ « os » → os FSets.⊆ dom h
-      heap-instances-typed : dom h FSets.≈ dom Γ
-      heap-links-valid     : ∀ {o f os} → h · o · f ≡ « os » → os FSets.⊆ dom h
-
-    domh⊆domΓ : dom h FSets.⊆ dom Γ
-    domh⊆domΓ = proj₁ heap-instances-typed
-
-    domΓ⊆domh : dom Γ FSets.⊆ dom h
-    domΓ⊆domh = proj₂ heap-instances-typed
-
-    field
-      heap-links-complete  : ∀ {c} {o : Element (dom h)} →
-                               Γ · (FSets.coe domh⊆domΓ o) ≡ c →
-                               dom (h · o) FSets.≈ class-fields c
-      heap-links-typed     : ∀ {c} {o : Element (dom h)} {f c′ os}
-                              → Γ · (FSets.coe domh⊆domΓ o) ≡ c → ref c f ≡ c′
-                              → Σ-inst (Element.value f FSets.∈ dom (h · o)) -- f is instantiated
-                                  (∀ (h·o·f≡os : h · o · ‹ Element.value f › ≡ « os ») (o′ : Element os) -- all elements have a type which is a subset of the expected one
-                                       → (Γ · FSets.coe (FSets.⊆-trans {ys = dom Γ} (heap-links-valid h·o·f≡os) domh⊆domΓ) o′) gen⋆ c′)
+      store-valid          : ValidStore μ
+      heap-instances-typed : TypedHeapInstances μ
+      heap-links-valid     : ValidHeapLinks μ
+      heap-links-complete  : CompleteHeapLinks μ heap-instances-typed
+      heap-links-typed     : TypedHeapLinks μ heap-links-valid heap-instances-typed
 
     private
       contains : Element (dom h) → Element (dom h) → Set
@@ -177,6 +157,8 @@ module Concrete (structure : Static.Structure) where
 
   𝔣𝔦 : Memory → FSet Instance
   𝔣𝔦 (σ ∣ h ∣ Γ) = 𝔣𝔦-σ σ FSets.∪ 𝔣𝔦-h h FSets.∪ 𝔣𝔦-Γ Γ
+
+  infix 0 _fresh_
 
   _fresh_ : Instance → Memory → Set
   o fresh μ = ∀ (o′ : Element (𝔣𝔦 μ)) → o ≢ Element.value o′
@@ -291,28 +273,124 @@ module Concrete (structure : Static.Structure) where
                     -------------------------
                     e match⋆ c , σ ∣ h ∣ Γ ⇓𝓜 os′
 
-  infix 0 _,_⇓𝓢_
+  disown : FSet Instance → Heap → Heap
+  disown os h = h ⟪ dom h ∥ (λ o → Element.value o ↦ h · o ⟪ dom (h · o) ∥ (λ f → Element.value f ↦ (h · o · f) ∖⊥ os) ⟫) ⟫
 
-  data _,_⇓𝓢_ : Statement → Memory → Memory → Set where
-    ⇓𝓢-skip : ∀ {μ} →
-                --------------
-                skip , μ ⇓𝓢 μ
-    ⇓𝓢-︔    : ∀ {s₁ s₂ μ μ″ μ′} →
-              s₁ , μ  ⇓𝓢 μ″ →
-              s₂ , μ″ ⇓𝓢 μ′ →
-              ----------------
-              s₁ ︔ s₂ , μ ⇓𝓢 μ′
-    ⇓𝓢-≔₁  : ∀ {x e os σ h Γ} →
-              e , σ ⇓𝓔 os →
-              ---------------------------------------------
-              x ≔₁ e , σ ∣ h ∣ Γ ⇓𝓢 σ ⟪ x ↦ « os » ⟫ ∣ h ∣ Γ
-    ⇓𝓢-≔₂  : ∀ {x e f o σ h Γ} →
-              e , σ ⇓𝓔 FSets.[ o ] →
-              ⦃ o∈dom·h : o FSets.∈ dom h ⦄ →
-              ⦃ f∈dom·h·o : f FSets.∈ dom (h · ‹ o ›) ⦄ →
-              -------------------------------------------------------------------------
-              x ≔₂ e ﹒ f , σ ∣ h ∣ Γ ⇓𝓢 σ ⟪ x ↦ h · ‹ o › · ‹ f › ⦃ f∈dom·h·o ⦄ ⟫ ∣ h ∣ Γ
-    ⇓𝓢-≔₃  : ∀ {x c σ h Γ o′} →
-              o′ fresh (σ ∣ h ∣ Γ) →
-             -----------------------------------------------------------------------------------------------------------------------------------
-              x ≔₃ new c , σ ∣ h ∣ Γ ⇓𝓢 σ ⟪ x ↦ « FSets.[ o′ ] » ⟫ ∣ h ⟪ o′ ↦ ⊙ ⟪ class-fields c ∥ (λ f → Element.value f ↦ ⏚) ⟫ ⟫ ∣ Γ ⟪ o′ ↦ c ⟫
+  mutual
+    infix 0 _↤_⊢_,_⇓𝓢-each_
+
+    data _↤_⊢_,_⇓𝓢-each_ : Var → FSet Instance → Statement → Memory → Memory → Set where
+      ⇓𝓢-each-∅ : ∀ {x s μ} →
+                  ------------------------------
+                  x ↤ FSets.∅ ⊢ s , μ ⇓𝓢-each μ
+      ⇓𝓢-each-⊎ : ∀ {x s o os′ os σ h Γ μ″ μ′} →
+                  FSets.[ o ]⊎ os′ ≈ os →
+                  s , σ ⟪ x ↦ « FSets.[ o ] » ⟫ ∣ h ∣ Γ ⇓𝓢 μ″ →
+                  x ↤ os′ ⊢ s , μ″ ⇓𝓢-each μ′ →
+                  ------------------------------
+                  x ↤ os ⊢ s , σ ∣ h ∣ Γ ⇓𝓢-each μ′
+
+    infix 0 _,_⇓𝓢_
+
+    data _,_⇓𝓢_ : Statement → Memory → Memory → Set where
+      ⇓𝓢-skip : ∀ {μ} →
+                  --------------
+                  skip , μ ⇓𝓢 μ
+      ⇓𝓢-︔    : ∀ {s₁ s₂ μ μ″ μ′} →
+                s₁ , μ  ⇓𝓢 μ″ →
+                s₂ , μ″ ⇓𝓢 μ′ →
+                ----------------
+                s₁ ︔ s₂ , μ ⇓𝓢 μ′
+      ⇓𝓢-≔₁  : ∀ {x e os σ h Γ} →
+                e , σ ⇓𝓔 os →
+                ---------------------------------------------
+                x ≔₁ e , σ ∣ h ∣ Γ ⇓𝓢 σ ⟪ x ↦ « os » ⟫ ∣ h ∣ Γ
+      ⇓𝓢-≔₂  : ∀ {x e f o σ h Γ} →
+                e , σ ⇓𝓔 FSets.[ o ] →
+                ⦃ o∈dom·h : o FSets.∈ dom h ⦄ →
+                ⦃ f∈dom·h·o : f FSets.∈ dom (h · ‹ o ›) ⦄ →
+                -------------------------------------------------------------------------
+                x ≔₂ e ﹒ f , σ ∣ h ∣ Γ ⇓𝓢 σ ⟪ x ↦ h · ‹ o › · ‹ f › ⦃ f∈dom·h·o ⦄ ⟫ ∣ h ∣ Γ
+      ⇓𝓢-≔₃  : ∀ {x c σ h Γ o′} →
+                o′ fresh σ ∣ h ∣ Γ →
+              -----------------------------------------------------------------------------------------------------------------------------------
+                x ≔₃ new c , σ ∣ h ∣ Γ ⇓𝓢 σ ⟪ x ↦ « FSets.[ o′ ] » ⟫ ∣ h ⟪ o′ ↦ ⊙ ⟪ class-fields c ∥ (λ f → Element.value f ↦ ⏚) ⟫ ⟫ ∣ Γ ⟪ o′ ↦ c ⟫
+      ⇓𝓢-≔₄  : ∀ {e₁ f e₂ o os σ h h′ Γ} →
+                  e₁ , σ ⇓𝓔 FSets.[ o ] →
+                  ⦃ o∈dom·h : o FSets.∈ dom h ⦄ →
+                  e₂ , σ ⇓𝓔 os →
+                  ⦃ f∈dom·h·o : f FSets.∈ dom (h · ‹ o ›) ⦄ →
+                  h′ ≅ h ⟪ o ↦ h · ‹ o › ⟪ f ↦ « os » ⟫  ⟫           if containment f ≡ ↝
+                    ∣ disown os h ⟪ o ↦ h · ‹ o › ⟪ f ↦ « os » ⟫ ⟫   otherwise →
+                -------------------------------------------------------------------------
+                  e₁ ﹒ f ≔₄ e₂ , σ ∣ h ∣ Γ ⇓𝓢 σ ∣ h′ ∣ Γ
+      ⇓𝓢-if₁  : ∀ {b s₁ s₂ σ h Γ μ′} →
+                b , σ ⇓𝓑 true →
+                s₁ , σ ∣ h ∣ Γ ⇓𝓢 μ′ →
+                --------------------------------------
+                if b then s₁ else s₂ , σ ∣ h ∣ Γ ⇓𝓢 μ′
+      ⇓𝓢-if₂  : ∀ {b s₁ s₂ σ h Γ μ′} →
+                b , σ ⇓𝓑 false →
+                s₂ , σ ∣ h ∣ Γ ⇓𝓢 μ′ →
+                -------------------------------------
+                if b then s₁ else s₂ , σ ∣ h ∣ Γ ⇓𝓢 μ′
+      ⇓𝓢-foreach : ∀ {x me s os μ μ′} →
+                  me , μ ⇓𝓜 os →
+                  x ↤ os ⊢ s , μ ⇓𝓢-each μ′ →
+                  --------------------------------------
+                  foreach x inn me do s , μ ⇓𝓢 μ′
+      ⇓𝓢-fix₁    : ∀ {e s σ h Γ os σ′ h′ Γ′ os′} →
+                  e , σ ⇓𝓔 os →
+                  s , σ ∣ h ∣ Γ ⇓𝓢 σ′ ∣ h′ ∣ Γ′ →
+                  e , σ′ ⇓𝓔 os′ →
+                  os FSets.≈ os′ →
+                  ------------------------------------
+                  fix e do s , σ ∣ h ∣ Γ ⇓𝓢 σ′ ∣ h′ ∣ Γ′
+      ⇓𝓢-fix₂    : ∀ {e s σ h Γ os σ′ h′ Γ′ σ″ h″ Γ″ os″} →
+                    e , σ ⇓𝓔 os →
+                    s , σ ∣ h ∣ Γ ⇓𝓢 σ″ ∣ h″ ∣ Γ″ →
+                    e , σ″ ⇓𝓔 os″ →
+                    os FSets.≉ os″ →
+                    fix e do s , σ″ ∣ h″ ∣ Γ″ ⇓𝓢 σ′ ∣ h′ ∣ Γ′ →
+                    ------------------------------------------
+                    fix e do s , σ ∣ h ∣ Γ ⇓𝓢 σ′ ∣ h′ ∣ Γ′
+
+
+  open IsWellformed
+
+  .𝓔-instance·validity : ∀ {e os} σ h Γ → ValidStore (σ ∣ h ∣ Γ) → e , σ ⇓𝓔 os → os FSets.⊆ dom h
+  𝓔-instance·validity σ h Γ σ-valid (⇓𝓔-var σ·x≡os) = σ-valid σ·x≡os
+  𝓔-instance·validity σ h Γ σ-valid ⇓𝓔-∅    =  FSets.∅-least {as = dom h}
+  𝓔-instance·validity σ h Γ σ-valid (⇓𝓔-∪ {os₁ = os₁} {os₂ = os₂} 𝓔₁ 𝓔₂) =
+     FSets.∪-⊆ os₁ os₂ (dom h) (𝓔-instance·validity σ h Γ σ-valid 𝓔₁) (𝓔-instance·validity σ h Γ σ-valid 𝓔₂)
+  𝓔-instance·validity σ h Γ σ-valid (⇓𝓔-∩ {os₁ = os₁} {os₂ = os₂} 𝓔₁ 𝓔₂) =
+     FSets.∩-⊆₁ os₁ os₂ (dom h) (𝓔-instance·validity σ h Γ σ-valid 𝓔₁)
+  𝓔-instance·validity σ h Γ σ-valid (⇓𝓔-∖ {os₁ = os₁} {os₂ = os₂} 𝓔₁ 𝓔₂) =
+     FSets.∖-⊆ os₁ os₂ (dom h) (𝓔-instance·validity σ h Γ σ-valid 𝓔₁)
+
+  .store-update-validity : ∀ x os σ h Γ → (σ-valid : ValidStore (σ ∣ h ∣ Γ)) → os FSets.⊆ dom h → ValidStore (σ ⟪ x ↦ « os » ⟫ ∣ h ∣ Γ)
+  store-update-validity x os σ h Γ σ-valid os⊆dom·h {y} {os′} σ⟪x↦os⟫·y≡os′ «os′» rewrite (update-lookup₁ σ x « os ») = {!p!}
+    where open PartialFunctions
+          open _⇀_ σ
+
+  .𝓢-wellformedness·preservation : ∀ {s μ μ′} → IsWellformed μ → s , μ ⇓𝓢 μ′ → IsWellformed μ′
+  𝓢-wellformedness·preservation μ-wf ⇓𝓢-skip = μ-wf
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-︔ 𝓢₁ 𝓢₂) = 𝓢-wellformedness·preservation (𝓢-wellformedness·preservation μ-wf 𝓢₁) 𝓢₂
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-≔₁ {x = x} {e = e} {os = os} {σ = σ} {h = h} {Γ = Γ} 𝓔) = record
+                                                  { store-valid = {!!} -- store-update-validity x os σ h Γ (store-valid {σ ∣ h ∣ Γ} μ-wf) (𝓔-instance·validity {e} {os} σ h Γ (store-valid {σ ∣ h ∣ Γ} μ-wf) 𝓔)
+                                                  ; heap-instances-typed = heap-instances-typed μ-wf
+                                                  ; heap-links-valid = heap-links-valid μ-wf
+                                                  ; heap-links-complete = heap-links-complete μ-wf
+                                                  ; heap-links-typed = heap-links-typed μ-wf
+                                                  ; containment-acyclic = containment-acyclic μ-wf
+                                                  ; containment-unique-inst = λ {o o′ o″} → containment-unique-inst μ-wf {o} {o′} {o″}
+                                                  ; containment-unique-field = λ {o o′} → containment-unique-field μ-wf {o} {o′}
+                                                  }
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-≔₂ x₁) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-≔₃ x₁) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-≔₄ x x₁ x₂) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-if₁ x 𝓢) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-if₂ x 𝓢) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-foreach x₁ x₂) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-fix₁ x 𝓢 x₁ x₂) = {!!}
+  𝓢-wellformedness·preservation μ-wf (⇓𝓢-fix₂ x 𝓢 x₁ x₂ 𝓢₁) = {!!}
